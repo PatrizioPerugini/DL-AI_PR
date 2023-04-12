@@ -5,7 +5,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torchvision.utils
 import pytorch_lightning as pl
 from typing import Sequence, List, Dict, Tuple, Optional, Any, Set, Union, Callable, Mapping
-#code based on https://github.com/ctallec/world-models and vae notebook, this is the structure illustrated in the paper
+
 from dataclasses import dataclass, asdict
 
 @dataclass
@@ -24,7 +24,7 @@ class HParams():
     beta: float= 0.4
 
 hparams = asdict(HParams())
-
+#The code is based on the original implementation and is based on the structure explained in the paper
 class Decoder(nn.Module):
     """ VAE decoder """
     def __init__(self, img_channels, latent_size):
@@ -79,10 +79,10 @@ class VAE(pl.LightningModule):
         self.save_hyperparameters(hparams)
         self.encoder = Encoder(self.hparams.img_channels, self.hparams.latent_size)
         self.decoder = Decoder(self.hparams.img_channels, self.hparams.latent_size)
-        # It avoids wandb logging when lighting does a sanity check on the validation
+       
         
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, x) :
         mu, logsigma = self.encoder(x)
         sigma = logsigma.exp()
         eps = torch.randn_like(sigma)
@@ -106,14 +106,7 @@ class VAE(pl.LightningModule):
         """ VAE loss function """
         #original
         BCE = F.mse_loss(recon_x, x, reduction='sum')
-        #from notebook
-        #BCE = F.binary_cross_entropy(recon_x.view(-1, 12288), x.view(-1, 12288), reduction='sum')
-        # see Appendix B from VAE paper:
-        # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-        # https://arxiv.org/abs/1312.6114
-        # (from notebook) You can look at the derivation of the KL term here https://arxiv.org/pdf/1907.08956.pdf
-        #KLD = -0.5 * torch.sum(1 + logsigma - mu.pow(2) - logsigma.exp())
-        # original
+ 
         KLD = -0.5 * torch.sum(1 + 2 * logsigma - mu.pow(2) - (2 * logsigma).exp())
         beta = self.hparams.beta
         return {"loss": BCE + beta*KLD, "BCE": BCE, "KLD": KLD}
@@ -125,60 +118,9 @@ class VAE(pl.LightningModule):
         self.log_dict(loss)
         return loss['loss']
 
-    # from cyclegan notebook
-    def get_image_examples(self, real, reconstructed):
-        """
-        Given real and "fake" translated images, produce a nice coupled images to log
-        :param real: the real images
-        :param reconstructed: the reconstructed image
-        :returns: a sequence of wandb.Image to log and visualize the performance
-        """
-        example_images = []
-        for i in range(real.shape[0]):
-            couple = torchvision.utils.make_grid(
-                [real[i], reconstructed[i]],
-                nrow=2,
-                normalize=True,
-                scale_each=False,
-                pad_value=1,
-                padding=4,
-            )
-           
-        return example_images
-
-    def validation_step(
-        self, batch: Dict[str, torch.Tensor], batch_idx: int) :
+    def validation_step(self, batch, batch_idx) :
         obs = batch['obs']
         recon_batch, mu, logvar, _ = self(obs)
         loss = self.loss_function(recon_batch, obs, mu, logvar)
         images = self.get_image_examples(obs, recon_batch)
         return {"loss_vae_val": loss['loss'], "images": images}
-
-    #def on_validation_epoch_end(
-    #    self
-    #) :
-    #    """ Implements the behaviouir at the end of a validation epoch
-    #    Currently it gathers all the produced examples and log them to wandb,
-    #    limiting the logged examples to `hparams["log_images"]`.
-    #    Then computes the mean of the losses and returns it. 
-    #    Updates the progress bar label with this loss.
-    #    :param outputs: a sequence that aggregates all the outputs of the validation steps
-    #    :returns: the aggregated validation loss and information to update the progress bar
-    #    """
-    #    images = []
-#
-    #    for x in outputs:
-    #        images.extend(x["images"])
-    #        
-    #    images = images[: self.hparams.log_images]
-#
-    #    
-    #    print(f"Logged {len(images)} images for each category.")
-    #    self.logger.experiment.log(
-    #        {f"images": images},
-    #        step=self.global_step,
-    #    )
-#
-    #    avg_loss = torch.stack([x["loss_vae_val"] for x in outputs]).mean()
-    #    self.log_dict({"avg_val_loss_vae": avg_loss})
-    #    return {"avg_val_loss_vae": avg_loss}

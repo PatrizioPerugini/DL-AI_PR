@@ -74,7 +74,7 @@ class DataModuleC(pl.LightningDataModule):
         
     def setup(self, stage: Optional[str] = None):
         map_env = ["SFFFHF", "FFFFFF", "FHFFFH", "FFFFFF", "HFHFFG"]
-        dataset = fill_erb(map_env, fill_dim=7000)
+        dataset = fill_erb(map_env, fill_dim=5000)
         data = ErbDataset(dataset)
         split_size=int(len(data)*9/10)
         self.data_train, self.data_test = torch.utils.data.random_split(data, \
@@ -145,7 +145,7 @@ if __name__ == '__main__':
     plt.imshow(x_recon.squeeze(0).permute(1,2,0).detach().numpy())
     plt.show()
     
-    model = VAE.load_from_checkpoint("../weights_20k.ckpt")
+    model = VAE.load_from_checkpoint("../weights_car.ckpt")
     x_recon, mu, logsigma, z = model.forward(x)
     print("good model reconstruction")
     plt.imshow(x_recon.squeeze(0).permute(1,2,0).detach().numpy())

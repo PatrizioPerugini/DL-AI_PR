@@ -35,13 +35,12 @@ hparams = asdict(HParams())
 
 def train():
    
-    #dataloader = WMRLDataModule(hparams = hparams)
     # Instantiate the model
     vae = VAE(hparams=hparams)
-    # Define the logger
+   
     dataloader = DataModuleC()
-    # Define the trainer
-    metric_to_monitor = 'loss'#"loss"
+    
+    metric_to_monitor = 'loss'
     early_stop_callback = EarlyStopping(monitor=metric_to_monitor, min_delta=0.00, patience=15, verbose=True, mode="min")
     #checkpoint_callback = ModelCheckpoint(
     #                        save_top_k=1,
@@ -57,8 +56,8 @@ def train():
     
     # Start the training
     trainer.fit(vae,dataloader)
-    # Log the trained model
-    model_pth = "../weights_20k.ckpt"
+  
+    model_pth = "../weights_car.ckpt"
     trainer.save_checkpoint(model_pth)
     
 

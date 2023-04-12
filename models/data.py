@@ -32,7 +32,7 @@ hparams = asdict(HParams())
 
 ###
 
-#brownian motion for samoling continuous action space randomly.. more consintent
+#brawnian motion for sampling con act sp randomly.. more consintent
 def sample_continuous_policy(action_space, seq_len, dt):
     actions = [action_space.sample()]
     print(actions)
@@ -51,13 +51,13 @@ def sample_continuous_policy(action_space, seq_len, dt):
 def fill_erb(map_env = ["SFFFHF", "FFFFFF", "FHFFFH", "FFFFFF", "HFHFFG"],fill_dim=1000):
     erb = Experience_replay_buffer()
     #env_render = gym.make("FrozenLake-v1", desc=map_env, render_mode="rgb_array",is_slippery = False)
-    env_render =  gym.make('CartPole-v0',render_mode="rgb_array")
+    env_render =  gym.make('CarRacing-v2',render_mode="rgb_array")
     states, actions, rewards, dones, next_states = [],[],[],[],[]
     #for ep in range(num_episodes):
     while erb.current_dimension < fill_dim:  
         done = False
         s, _ = env_render.reset()
-        while not done:
+        while not done and erb.current_dimension < fill_dim:
             a = env_render.action_space.sample()
             #obs = env.render("rgb_array")
             obs = env_render.render()

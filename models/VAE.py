@@ -122,5 +122,5 @@ class VAE(pl.LightningModule):
         obs = batch['obs']
         recon_batch, mu, logvar, _ = self(obs)
         loss = self.loss_function(recon_batch, obs, mu, logvar)
-        images = self.get_image_examples(obs, recon_batch)
-        return {"loss_vae_val": loss['loss'], "images": images}
+       
+        return {"loss_vae_val": loss['loss']}

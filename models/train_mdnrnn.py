@@ -15,13 +15,13 @@ class HParams():
     n_epochs : int = 20
     batch_size: int = 128
     n_cpu: int = 8 
-    lr: int = 1e-4
+    lr: int = 1e-3
     wd: int = 1e-4
     lstm_num_layers: int = 2
     z_size: int = 32
     n_hidden: int = 256 #(lstm hidden size and lay)
     n_gaussians: int = 5
-    seq_len : int = 1 # consider the possibility of giving a contest concatenating more then 1 obs
+    seq_len : int = 4 # consider the possibility of giving a contest concatenating more then 1 obs
     action_dim: int = 1
 
 hparams = asdict(HParams())
@@ -48,7 +48,9 @@ def train():
     
       
     # Start the training
+    print("STARTING TRAINING")
     trainer.fit(mdnrnn,dataloader)
+    print("END OF TRAINING")
     # Log the trained model
     model_pth ="../prova_md.ckpt"
     trainer.save_checkpoint(model_pth)

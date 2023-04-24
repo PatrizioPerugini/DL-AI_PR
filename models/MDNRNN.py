@@ -17,13 +17,13 @@ class HParams():
     img_channels : int = 3
     batch_size: int = 128
     n_cpu: int = 8 
-    lr: int = 3e-4
+    lr: int = 1e-3
     wd: int = 0
     lstm_num_layers: int = 2
     z_size: int = 32
     n_hidden: int = 256 #(lstm hidden size and lay)
     n_gaussians: int = 5
-    seq_len : int = 1 # consider the possibility of giving a contest concatenating more then 1 obs 
+    seq_len : int = 4 # consider the possibility of giving a contest concatenating more then 1 obs 
     action_dim: int = 1
 
 hparams = asdict(HParams())
@@ -35,7 +35,6 @@ class MDNRNN(pl.LightningModule):
         pth =  "../weights_new_f.ckpt"
         self.vae = VAE.load_from_checkpoint(pth)
         self.vae.freeze() # already trained
-        
         self.z_size = self.hparams.z_size
         self.n_gaussians = self.hparams.n_gaussians
         self.n_hidden = self.hparams.n_hidden
@@ -47,18 +46,19 @@ class MDNRNN(pl.LightningModule):
                             self.lstm_num_layers,
                             batch_first = True)
         #now we need to compute three parameters (pi - sigma - mu) for each gaussian
-        self.pi = nn.Linear(self.n_hidden,self.n_gaussians*self.z_size)      #fc1
-        self.mu = nn.Linear(self.n_hidden,self.n_gaussians*self.z_size)      #fc2
-        self.sigma = nn.Linear(self.n_hidden,self.n_gaussians*self.z_size)   #fc3
+        self.pi = nn.Linear(self.n_hidden,self.n_gaussians*self.z_size)      
+        self.mu = nn.Linear(self.n_hidden,self.n_gaussians*self.z_size)      
+        self.sigma = nn.Linear(self.n_hidden,self.n_gaussians*self.z_size)   
 
         self.d = nn.Linear(self.n_hidden,1)
         #adding now 
-        self.hidden = None
+       # self.hidden = None
+        
+        #self.hidden = [torch.zeros(self.hparams.lstm_num_layers, self.batch_size, self.hparams.n_hidden).cuda() for _ in range(2)]
     
 
     
     def get_mixture_coeffs(self,y):
-        ##y goes to Nan
         rollout_len = y.size(1)
         pi = self.pi(y)
         mu = self.mu(y)
@@ -66,63 +66,53 @@ class MDNRNN(pl.LightningModule):
         pi = pi.view(-1,rollout_len,self.n_gaussians,self.z_size)
         mu = mu.view(-1,rollout_len,self.n_gaussians,self.z_size)
         sigma = sigma.view(-1, rollout_len, self.n_gaussians, self.z_size)
-
         pi = F.softmax(pi, 2)
         sigma = torch.exp(sigma)
-        # mu pi and sigma goes to Nan...
+        
         return pi, mu, sigma
+        
 
     def forward(self, z,a,hidden = None) :
-        #a = a.unsqueeze(-1)
-        #print("shape of a",a.shape)
         if len(a.shape) ==2:
             a = a.unsqueeze(-1)
+        #print("THE SHAPE OF Z IS", z.shape)
         #shape z is (bs,seq_len,hidden_dim)
         if len(z.shape) ==2:
             z = z.unsqueeze(1) #adding seq len = 1
-        #print("shape of z", z.shape)
         inp = torch.cat([a,z],dim = -1)#check
-        
         if hidden == None:
             y, (h, c) = self.lstm(inp)
         else:
-            y, (h, c) = self.lstm(inp,self.hidden)
-      
-        self.hidden = (h,c)
-     
+            y, (h, c) = self.lstm(inp,hidden)    
+        
         pi, mu, sigma = self.get_mixture_coeffs(y)
-       
         done = torch.sigmoid(self.d(y))
         return (pi, mu, sigma, done), (h,c)
 
-    #questa infame diventa nan
+    #mixture loss
     def mdn_loss_fn(self,y, pi, mu, sigma):
         y = y.unsqueeze(2)
-        #print("-----1", y)
         m = torch.distributions.Normal(loc=mu, scale=sigma)
         loss = torch.exp(m.log_prob(y))
-        #print("-----2", loss)
         loss = torch.sum(loss * pi, dim=2)
-        #print("-----3", y)
-        #NEGATIVE LOG LIKELIHOOD IS THE PROBLEM 
         loss = -torch.log(loss)
-        #print("-----4", loss)
         l = loss.mean()
         return l
-    
+
+    #termination loss
     def d_loss_fn(self,out,inp):
         out = out.view(-1,out.shape[-1])
         inp = inp.view(-1,inp.shape[-1])
         loss = F.mse_loss(out,inp)
         return loss
 
-    def loss_function(self,z_next,pi,mu,sigma,pred_d,d):
+    #get loss .. see if balancing is good
+    def loss_function(self,z_next,mu,sigma,pi,pred_d,d):
         mdn_loss = self.mdn_loss_fn(z_next,pi,mu,sigma)
         d_loss   = self.d_loss_fn(pred_d,d)
-        #print("LOSSSS IS mdn", mdn_loss)
-        #print("LOSSSS IS d_l", d_loss)
+        bal = 1
 
-        return {'loss': mdn_loss+d_loss, 'MDN_loss': mdn_loss, "D_loss":d_loss}
+        return {'loss': mdn_loss+bal*d_loss, 'MDN_loss': mdn_loss, "D_loss":d_loss}
 
     def configure_optimizers(self):
         params = [p for p in self.parameters() if p.requires_grad]
@@ -137,49 +127,50 @@ class MDNRNN(pl.LightningModule):
             },
         }
     
+   
     def get_latent(self, obs):
-        """ Function to go from image to latent space. """
-        #print(obs.shape)
-        #obs = obs.reshape(-1,*original_shape[2:])
         sl = 1
         bs = obs.shape[0]
         if len(obs.shape)==4:
             sl = 1
         else:
             sl = obs.shape[1] # to support multi framology
+        #(bs, sl,num_channel,height,width)
+        img_shape = obs.shape[2:]
+        obs = obs.reshape(-1,*img_shape)
         #print(obs.shape)
         with torch.no_grad():
             _, mu, logsigma, z = self.vae(obs)
-                
                #z_shape [bs,seq_len,latent_size]
+       
         return z.view(bs,sl, self.hparams.z_size)
 
 
+    #HERE I NEED TO CHANGE SOMETHING SO THAT IT SUPPORTS MULTIPLE IMAGES
     def training_step(self, batch, batch_idx):
         obs = batch['obs']
-        act = batch['act'].unsqueeze(-1)
-        done = batch['done'].unsqueeze(-1)
+        #([52, 3, 64, 64
+        #print("THE SHAPE OF OBS IS", obs.shape)
+        act = batch['act']#.unsqueeze(-1)
+        done = batch['done']#.unsqueeze(-1)
         if len(done.shape)==2:
             done = done.unsqueeze(-1)
+            act = act.unsqueeze(-1)
         next_obs = batch['next_obs']
-        #consider this trick in order to have a different number of frames stuck together
-       
         latent_obs = self.get_latent(obs)
-        # print(latent_obs.shape)
         next_latent_obs = self.get_latent(next_obs)
         (pi, mu, sigma, pdone), (_,_) = self(latent_obs,act)
-       
         loss = self.loss_function(next_latent_obs, mu, sigma, pi, pdone, done)
         self.log_dict(loss)
         return loss['loss']
 
     def validation_step(self, batch, batch_idx):
         obs = batch['obs']
-        act = batch['act'].unsqueeze(-1)
-        done = batch['done'].unsqueeze(-1)
+        act = batch['act']#.unsqueeze(-1)
+        done = batch['done']#.unsqueeze(-1)
         if len(done.shape)==2:
             done = done.unsqueeze(-1)
-        #obs = obs[:,0:self.hparams.seq_len,3,64,64]
+            act = act.unsqueeze(-1)
         next_obs = batch['next_obs']
        
         latent_obs = self.get_latent(obs)
@@ -199,3 +190,4 @@ if __name__ == '__main__':
     z_s = torch.vstack([z,z]).unsqueeze(0)
 
     (pi, mu, sigma, done), (h,c) = model.forward(a_s,z_s)
+    print("done")
